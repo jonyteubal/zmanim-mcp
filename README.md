@@ -18,6 +18,19 @@ for Claude Code:
 The endpoint is stateless Streamable HTTP (POST only), limited to 60 requests
 a minute per client address.
 
+## Personal agents
+
+For agents that connect through a chat instruction (Muse, Claude Duet, Dot and
+similar), send this prompt. It has not been tested against those agents.
+
+> Connect to the Zmanim MCP server at https://zmanim.kavana-ai.workers.dev/mcp.
+> It is a remote MCP server over streamable HTTP and needs no authentication or
+> credentials. It has four tools: get_zmanim, get_shabbat_times,
+> get_hebrew_date, and convert_hebrew_date. Connect to it, test each tool, show
+> me the results, and keep the connection available in future conversations
+> (save it as a skill or connector if that is how you store integrations). Use
+> it whenever I ask about zmanim, Shabbat times, or the Hebrew calendar.
+
 ## Weekly Shabbat reminder
 
 In an assistant that supports scheduled tasks, send this after setup (replace
