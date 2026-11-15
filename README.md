@@ -57,6 +57,7 @@ the city):
 | `get_hebrew_date` | Hebrew date, what falls on it, parasha, upcoming holidays |
 | `convert_hebrew_date` | Civil date of a Hebrew date (birthdays, yahrzeits) |
 | `list_prayers` | The prayers available, by service, for one tradition |
+| `get_service` | A whole service (Shacharit, Mincha, Arvit) in order for a given day |
 | `get_prayer` | Hebrew text of a prayer, with English where the source has it |
 | `get_psalm` | A chapter of Tehillim in Hebrew and English |
 | `find_blessing` | The blessing before and after a food or drink |
@@ -104,7 +105,7 @@ Deploy your own copy to Cloudflare Workers:
 | `data/cities.txt` | City names, coordinates and time zones from GeoNames |
 | `src/texts.ts` | Prayer, Psalm and blessing lookups |
 | `assets/texts/` | One JSON file per prayer, built by `scripts/build_texts.py` |
-| `src/server.ts` | The eight MCP tools |
+| `src/server.ts` | The nine MCP tools |
 | `src/index.ts` | Local stdio entry point |
 | `src/worker.ts` | Cloudflare Workers entry point (public HTTP endpoint) |
 

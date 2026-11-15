@@ -2,8 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { events, fromHebrew, hebrewDate, isoDate, parasha, parseIsoDate, weekdayName } from "./calendar.js";
 import { assertTimeZone, resolvePlace, type CitySource, type Place } from "./location.js";
-import { addDays, civilDateAt, localMidnight } from "./solar.js";
-import { findBlessing, getPrayer, getPsalm, listPrayers, type TextSource } from "./texts.js";
+import { addDays, civilDateAt, localMidnight, weekday } from "./solar.js";
+import { findBlessing, getPrayer, getPsalm, getService, listPrayers, type TextSource } from "./texts.js";
 import { computeZmanim, displayInstant, formatTime, nextShabbat } from "./zmanim.js";
 
 // Every tool only reads, and none contacts an outside service.
@@ -38,7 +38,7 @@ async function guard(run: () => Promise<unknown>) {
 
 /** One server per connection. `cities` supplies the bundled city list and `texts` the prayer text files. */
 export function createServer(cities: CitySource, texts: TextSource) {
-const server = new McpServer({ name: "kavana-zmanim", version: "0.5.0" });
+const server = new McpServer({ name: "kavana-zmanim", version: "0.6.0" });
 
 server.registerTool("get_zmanim", {
   title: "Zmanim for a day",
@@ -175,6 +175,32 @@ server.registerTool("get_prayer", {
     include_english: z.boolean().optional().describe("Include the English translation where available. Default true."),
   },
 }, (args) => guard(() => getPrayer(texts, args)));
+
+server.registerTool("get_service", {
+  title: "A prayer service for a day",
+  description: "A whole prayer service in order (Shacharit, Mincha, or Arvit) for a given day: the list of its prayers and their Hebrew text, with English where the source provides it. The day decides which service applies: on Shabbat, shacharit returns the Shabbat morning service, and on Friday night arvit returns Kabbalat Shabbat. day_notes lists the usual changes for Rosh Chodesh, Chanukah, fast days and festivals. The text comes in parts; continue from next_position.",
+  annotations: READ_ONLY,
+  inputSchema: {
+    service: z.string().describe("shacharit, mincha, or arvit (also morning, afternoon, evening, maariv). A specific service id from list_prayers, such as shabbat_eve, is also accepted and is then not changed for the day."),
+    date: z.string().optional().describe("Civil date as YYYY-MM-DD. Defaults to today in the given timezone. For Arvit, give the civil date of that evening."),
+    timezone: z.string().optional().describe("IANA time zone used to decide what \"today\" is, for example \"America/Panama\". Default UTC."),
+    tradition: traditionField,
+    israel: z.boolean().optional().describe("True for the Israel holiday calendar. Default false."),
+    position: z.string().optional().describe("Where to start, as given by next_position in the previous reply or by a position in \"order\". Default: the beginning."),
+    include_english: z.boolean().optional().describe("Include the English translation where available. Default true."),
+  },
+}, (args) => guard(async () => {
+  const civil = args.date ? parseIsoDate(args.date) : civilDateAt(Date.now(), assertTimeZone(args.timezone ?? "UTC"));
+  // An evening service belongs to the Hebrew day that begins at that sunset.
+  const evening = /^(arvit|maariv|evening|night)/i.test(args.service.trim());
+  const hebrewDay = evening ? addDays(civil, 1) : civil;
+  const today = events(hebrewDay, hebrewDay, args.israel ?? false);
+  const result = await getService(texts, {
+    service: args.service, weekday: weekday(civil), tradition: args.tradition, position: args.position, include_english: args.include_english,
+    occasions: today.map((event) => event.name), yomTov: today.some((event) => event.yomTov),
+  });
+  return { date: isoDate(civil), weekday: weekdayName(civil), hebrew_date: hebrewDate(hebrewDay).english, occasions: today.filter((event) => !event.categories.includes("omer")).map((event) => event.name), ...result };
+}));
 
 server.registerTool("get_psalm", {
   title: "Text of a Psalm",

@@ -13,6 +13,7 @@ Authentication: none. There are no accounts, scopes, or credentials.
 | `get_hebrew_date` | Read | No | None | None |
 | `convert_hebrew_date` | Read | No | None | None |
 | `list_prayers` | Read | No | None | None |
+| `get_service` | Read | No | None | None |
 | `get_prayer` | Read | No | None | None |
 | `get_psalm` | Read | No | None | None |
 | `find_blessing` | Read | No | None | None |
@@ -120,6 +121,32 @@ The catalog of prayers whose text the server holds, grouped by service.
 Output: `tradition`, `services` (each with `service`, `title`, and `prayers`
 holding `prayer` id, `title`, paragraph count), `other_traditions`, `source`.
 
+## `get_service`
+
+A whole prayer service in printed order for a given day.
+
+| Input | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `service` | string | Yes | `shacharit`, `mincha`, or `arvit` (also morning, afternoon, evening, maariv). A specific id such as `shabbat_eve` is used as given |
+| `date` | string | No | YYYY-MM-DD. Default: today in `timezone`. For Arvit, the civil date of that evening |
+| `timezone` | string | No | IANA name, used only to decide "today". Default UTC |
+| `tradition` | string | No | Default `sephardic` |
+| `israel` | boolean | No | Israel holiday calendar. Default false |
+| `position` | string | No | Where to start: `next_position` from the previous reply, or a `position` from `order` |
+| `include_english` | boolean | No | Default true |
+
+The day selects the service: on Saturday, `shacharit` returns the Shabbat
+morning service and `mincha` returns Shabbat Mincha; on Friday, `arvit` returns
+the Friday night service.
+
+Output: `date`, `weekday`, `hebrew_date`, `occasions`, `service`,
+`chosen_because`, `day_notes` (the usual changes for Rosh Chodesh, Chanukah,
+Purim, fast days, Chol HaMoed and the Omer, and a notice on Yom Tov that
+festival prayers are not included), `order` (every prayer with its
+`position`), `text` (prayers with their paragraphs, about 7,000 characters per
+reply), `next_position` (null at the end), `source`, `note`. The text itself
+is never altered for the day.
+
 ## `get_prayer`
 
 The Hebrew text of one prayer, with English where the source provides it.
@@ -179,6 +206,8 @@ partial data. The server never estimates a value it cannot calculate.
 | Polar day or night | "The sun does not rise and set at ..." |
 | Invalid Hebrew date | "Could not read the Hebrew date ..." |
 | Unknown prayer | "No prayer named ... Call list_prayers to see what is available." |
+| Unknown service | "Unknown service ... Use shacharit, mincha, or arvit ..." |
+| Invalid position | "position ... is not valid. Use the next_position value from the previous reply." |
 | Prayer not in the service given | "... is not in the ... service. It appears in: ..." |
 | Offset past the end | "offset ... is past the end" |
 | Psalm out of range | "Psalm chapters run from 1 to 150." |

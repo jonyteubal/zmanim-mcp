@@ -136,6 +136,99 @@ export async function getPrayer(source: TextSource, request: PrayerRequest) {
   };
 }
 
+export interface ServiceRequest {
+  service: string;
+  /** 0 = Sunday ... 6 = Saturday, for the civil date being prayed. */
+  weekday: number;
+  /** Names of what falls on that Hebrew date (holidays, Rosh Chodesh, fasts), as the calendar reports them. */
+  occasions: string[];
+  yomTov: boolean;
+  tradition?: Tradition;
+  position?: string;
+  include_english?: boolean;
+}
+
+const DAILY: Record<string, "shacharit" | "mincha" | "arvit"> = {
+  shacharit: "shacharit", shaharit: "shacharit", morning: "shacharit", "morning prayer": "shacharit", "morning prayers": "shacharit",
+  mincha: "mincha", minha: "mincha", afternoon: "mincha", "afternoon prayer": "mincha",
+  arvit: "arvit", maariv: "arvit", evening: "arvit", night: "arvit", "evening prayer": "arvit",
+};
+
+/** Which part of the siddur a daily service uses on a given weekday. */
+function serviceForDay(daily: "shacharit" | "mincha" | "arvit", weekday: number): { id: string; reason?: string } {
+  if (weekday === 6 && daily === "shacharit") return { id: "shabbat_day", reason: "It is Shabbat, so this is the Shabbat morning service, including Musaf." };
+  if (weekday === 6 && daily === "mincha") return { id: "shabbat_mincha", reason: "It is Shabbat, so this is Shabbat Mincha." };
+  if (weekday === 5 && daily === "arvit") return { id: "shabbat_eve", reason: "It is Friday night, so this is Kabbalat Shabbat and the Shabbat evening service." };
+  if (weekday === 6 && daily === "arvit") return { id: "arvit", reason: "Saturday night uses weekday Arvit. Havdalah is available with get_prayer (prayer \"havdalah\")." };
+  return { id: daily };
+}
+
+/** Widely shared changes for special days. The printed text is not altered; these tell the reader what to look for. */
+function dayNotes(occasions: string[], yomTov: boolean, daily: string): string[] {
+  const has = (pattern: RegExp) => occasions.some((name) => pattern.test(name));
+  const notes: string[] = [];
+  if (yomTov) notes.push("Today is a Yom Tov. This server holds the weekday and Shabbat services only; the festival Amidah, Hallel and other festival prayers are not included, so use a machzor or festival siddur.");
+  if (has(/Rosh Chodesh/i)) notes.push("Rosh Chodesh: Ya'aleh VeYavo is added in the Amidah, Hallel and Musaf are said in the morning, and Tachanun (Vidui) is omitted.");
+  if (has(/Chanukah/i)) notes.push("Chanukah: Al HaNissim is added in the Amidah, Hallel is said in the morning, and Tachanun (Vidui) is omitted.");
+  if (has(/^Purim|Shushan Purim/i)) notes.push("Purim: Al HaNissim is added in the Amidah and Tachanun (Vidui) is omitted.");
+  if (has(/Tzom|Ta'anit|Tish'a B'Av|Asara B'Tevet/i) && !has(/Yom Kippur/i)) notes.push("Fast day: Aneinu is added in the Amidah, with other additions that depend on the fast and the community.");
+  if (has(/Omer/i) && daily === "arvit") notes.push("The Omer is counted tonight after Arvit (get_prayer with prayer \"omer\").");
+  if (has(/Chol hamoed/i)) notes.push("Chol HaMoed: Ya'aleh VeYavo is added in the Amidah, Hallel and Musaf are said, and Tachanun (Vidui) is omitted.");
+  return notes;
+}
+
+/** A whole service for a given day, in order, returned in parts. */
+export async function getService(source: TextSource, request: ServiceRequest) {
+  const index = await load<Index>(source, "index.json");
+  const { id, book } = tradition(index, request.tradition);
+  const wanted = key(request.service);
+  const daily = DAILY[wanted];
+  const chosen = daily ? serviceForDay(daily, request.weekday)
+    : { id: key(SERVICE_ALIASES[wanted] ?? wanted).replace(/ /g, "_") };
+  const service = book.services.find((entry) => entry.id === chosen.id);
+  if (!service) throw new Error(`Unknown service "${request.service}". Use shacharit, mincha, or arvit (chosen for the day automatically), or one of: ${book.services.map((entry) => entry.id).join(", ")}.`);
+
+  const [sectionText, paragraphText] = (request.position ?? "0:0").split(":");
+  const startSection = Number(sectionText), startParagraph = Number(paragraphText ?? 0);
+  if (!Number.isInteger(startSection) || !Number.isInteger(startParagraph) || startSection < 0 || startParagraph < 0 || startSection >= service.sections.length) {
+    throw new Error(`position "${request.position}" is not valid. Use the next_position value from the previous reply.`);
+  }
+  const english = request.include_english ?? true;
+  const parts: { prayer: string; title: string; paragraphs: (Paragraph & { n: number })[] }[] = [];
+  let characters = 0;
+  let next: string | null = null;
+  outer: for (let s = startSection; s < service.sections.length; s++) {
+    const section = service.sections[s];
+    const file = await load<{ paragraphs: Paragraph[] }>(source, `${id}/${service.id}.${section.id}.json`);
+    const from = s === startSection ? startParagraph : 0;
+    if (from > file.paragraphs.length) throw new Error(`position "${request.position}" is past the end of ${section.title}.`);
+    const page: (Paragraph & { n: number })[] = [];
+    for (let n = from; n < file.paragraphs.length; n++) {
+      const paragraph = file.paragraphs[n];
+      const size = paragraph.he.length + (english && paragraph.en ? paragraph.en.length : 0);
+      if (characters > 0 && characters + size > PAGE_CHARACTERS) {
+        if (page.length) parts.push({ prayer: section.id, title: section.title, paragraphs: page });
+        next = `${s}:${n}`;
+        break outer;
+      }
+      characters += size;
+      page.push({ n, he: paragraph.he, en: english ? paragraph.en : undefined, kind: paragraph.kind });
+    }
+    if (page.length) parts.push({ prayer: section.id, title: section.title, paragraphs: page });
+  }
+  return {
+    service: service.id, service_title: service.title,
+    chosen_because: chosen.reason,
+    tradition: id, tradition_name: book.name,
+    day_notes: dayNotes(request.occasions, request.yomTov, daily ?? service.id),
+    order: service.sections.map((section, n) => ({ position: `${n}:0`, prayer: section.id, title: section.title, paragraphs: section.paragraphs })),
+    text: parts,
+    next_position: next,
+    source: book.source,
+    note: "The service in printed order. Continue from next_position until it is null, or jump to any prayer with its position from \"order\". Text in parentheses and entries of kind \"instruction\" are directions. The text is not adjusted for the day: day_notes lists the usual changes. Customs differ between communities.",
+  };
+}
+
 export async function getPsalm(source: TextSource, chapter: number, includeEnglish = true) {
   const index = await load<Index>(source, "index.json");
   if (!Number.isInteger(chapter) || chapter < 1 || chapter > index.tehillim.chapters) {

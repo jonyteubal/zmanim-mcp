@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { Location, Zmanim } from "@hebcal/core";
 import { events, fromHebrew, hebrewDate, isoDate, parasha, parseIsoDate } from "../dist/calendar.js";
 import { resolvePlace } from "../dist/location.js";
-import { findBlessing, getPrayer, getPsalm, listPrayers } from "../dist/texts.js";
+import { findBlessing, getPrayer, getPsalm, getService, listPrayers } from "../dist/texts.js";
 import { SolarCalculator, localMidnight } from "../dist/solar.js";
 import { computeZmanim, displayInstant, formatTime, nextShabbat } from "../dist/zmanim.js";
 
@@ -223,4 +223,43 @@ test("blessings for foods", async () => {
   const all = await findBlessing(texts);
   assert.equal(all.before_eating.length, 6);
   assert.equal(all.after_eating.length, 5);
+});
+
+test("a whole service for a day", async () => {
+  const on = (service, weekdayNumber, occasions = [], extra = {}) => getService(texts, { service, weekday: weekdayNumber, occasions, yomTov: false, ...extra });
+  assert.equal((await on("shacharit", 0)).service, "shacharit");
+  assert.equal((await on("morning", 6)).service, "shabbat_day");
+  assert.equal((await on("mincha", 6)).service, "shabbat_mincha");
+  assert.equal((await on("mincha", 5)).service, "mincha");
+  assert.equal((await on("maariv", 5)).service, "shabbat_eve");
+  assert.equal((await on("arvit", 6)).service, "arvit");
+  assert.equal((await on("shabbat_eve", 2)).service, "shabbat_eve");
+  assert.equal((await on("shacharit", 1, [], { tradition: "ashkenaz" })).tradition, "ashkenaz");
+  const plain = await on("shacharit", 2);
+  assert.deepEqual(plain.day_notes, []);
+  assert.equal(plain.order[0].prayer, "modeh_ani");
+  assert.equal(plain.text[0].prayer, "modeh_ani");
+  assert.match((await on("shacharit", 4, ["Rosh Chodesh Tevet", "Chanukah: 7 Candles"])).day_notes.join(" "), /Ya'aleh VeYavo.*Al HaNissim/);
+  assert.match((await on("shacharit", 4, ["Pesach I"], { yomTov: true })).day_notes[0], /Yom Tov/);
+  assert.match((await on("arvit", 2, ["19th day of the Omer"])).day_notes.join(" "), /Omer is counted/);
+  assert.deepEqual((await on("shacharit", 2, ["19th day of the Omer"])).day_notes, []);
+  // Walking next_position covers every paragraph of every prayer exactly once, in order.
+  for (const [service, day] of [["mincha", 2], ["arvit", 5]]) {
+    const seen = [];
+    let position, last;
+    for (let guard = 0; guard < 300; guard++) {
+      last = await on(service, day, [], { position });
+      assert.ok(JSON.stringify(last).length < 22000);
+      for (const part of last.text) for (const paragraph of part.paragraphs) seen.push(`${part.prayer}:${paragraph.n}`);
+      position = last.next_position;
+      if (position === null) break;
+    }
+    const expected = last.order.flatMap((entry) => Array.from({ length: entry.paragraphs }, (_, n) => `${entry.prayer}:${n}`));
+    assert.deepEqual(seen, expected, service);
+  }
+  const jump = await on("shacharit", 2, [], { position: plain.order.find((entry) => entry.prayer === "amidah").position });
+  assert.equal(jump.text[0].prayer, "amidah");
+  await assert.rejects(on("hallel", 2), /Unknown service/);
+  await assert.rejects(on("shacharit", 2, [], { position: "99:0" }), /not valid/);
+  await assert.rejects(on("shacharit", 2, [], { position: "abc" }), /not valid/);
 });
