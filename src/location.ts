@@ -18,7 +18,7 @@ export interface PlaceInput {
   timezone?: string;
 }
 
-/** Returns the text of data/cities.txt: one city per line, tab separated, most populous first. */
+/** Returns the text of data/cities.txt: one city per line, tab separated, most populous first, starting with the normalized name. */
 export type CitySource = () => string | Promise<string>;
 
 interface City {
@@ -55,18 +55,50 @@ export function normalize(text: string): string {
     .replace(/[øæßđłı]/g, (letter) => UNDECOMPOSED[letter]).replace(/\s+/g, " ").trim();
 }
 
-let parsed: Promise<City[]> | undefined;
-function cities(source: CitySource): Promise<City[]> {
-  parsed ??= Promise.resolve(source()).then((text) => text.split("\n").filter(Boolean).map((line) => {
-    const [name, region, latitude, longitude, timeZone, country, alternates] = line.split("\t");
-    return { name, region, latitude: Number(latitude), longitude: Number(longitude), timeZone, country, key: normalize(name), alternates: alternates ?? "" };
-  }));
-  return parsed;
+// The list stays as one string and is searched in place: parsing 34,000 lines
+// up front costs more CPU than a small Worker is allowed per request.
+let listText: Promise<string> | undefined;
+function cityList(source: CitySource): Promise<string> {
+  listText ??= Promise.resolve(source()).then((text) => "\n" + text);
+  return listText;
+}
+
+/** The city on the line that contains `position`. Columns: key, name, region, latitude, longitude, zone, country, alternates. */
+function cityAt(text: string, position: number): City & { start: number } {
+  const start = text.lastIndexOf("\n", position) + 1;
+  const end = text.indexOf("\n", position);
+  const [key, name, region, latitude, longitude, timeZone, country, alternates] = text.slice(start, end < 0 ? undefined : end).split("\t");
+  return { start, key, name, region, latitude: Number(latitude), longitude: Number(longitude), timeZone, country, alternates: alternates ?? "" };
+}
+
+const BEFORE = new Set(["\t", ",", " "]);
+const AFTER = new Set(["\n", ",", " ", undefined]);
+
+/** Cities whose name is `query`, or failing that, cities with `query` as an alternate spelling. Most populous first. */
+function findCities(text: string, query: string): City[] {
+  const exact: City[] = [];
+  const seen = new Set<number>();
+  for (let at = text.indexOf(`\n${query}\t`); at >= 0; at = text.indexOf(`\n${query}\t`, at + 1)) {
+    const city = cityAt(text, at + 1);
+    seen.add(city.start);
+    exact.push(city);
+  }
+  // An exact name settles it; the alternate spellings are a fallback, and the slower search.
+  if (exact.length) return exact;
+  const alternate: City[] = [];
+  for (let at = text.indexOf(query); at >= 0 && alternate.length < 50; at = text.indexOf(query, at + 1)) {
+    if (!BEFORE.has(text[at - 1]) || !AFTER.has(text[at + query.length])) continue;
+    const city = cityAt(text, at);
+    if (seen.has(city.start)) continue;
+    seen.add(city.start);
+    // Only a hit inside the alternates column counts, not one in the region or zone.
+    if (hasAlternate(city, query)) alternate.push(city);
+  }
+  return [...exact, ...alternate];
 }
 
 function hasAlternate(city: City, query: string): boolean {
-  const at = city.alternates.indexOf(query);
-  if (at < 0) return false;
+  if (!city.alternates.includes(query)) return false;
   const [first, ...rest] = city.alternates.split(",");
   return rest.includes(query) || ` ${first} `.includes(` ${query} `);
 }
@@ -115,10 +147,9 @@ export async function resolvePlace(input: PlaceInput, source: CitySource): Promi
   if (!query) throw new Error("Give a location (a city name) or latitude, longitude and timezone.");
   const [cityPart, ...rest] = query.split(",").map(normalize).filter(Boolean);
   if (!cityPart) throw new Error("Give a location (a city name) or latitude, longitude and timezone.");
-  const all = await cities(source);
+  const text = await cityList(source);
 
-  // Exact names outrank alternate spellings; within each group the list is by population.
-  const find = (name: string) => [...all.filter((city) => city.key === name), ...all.filter((city) => city.key !== name && hasAlternate(city, name))];
+  const find = (name: string) => findCities(text, name);
   let candidates = find(cityPart);
   if (!candidates.length && cityPart.endsWith(" city")) candidates = find(cityPart.slice(0, -5));
   if (!candidates.length) throw new Error(`No place found for "${query}". Try a larger nearby city, or pass latitude, longitude and timezone.`);
