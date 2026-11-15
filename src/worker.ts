@@ -10,6 +10,11 @@ interface Env {
 }
 
 const DOCS = "https://kavana.jonyy.com/mcp/";
+// Ownership proofs requested by connector directories: path -> plain-text body.
+const WELL_KNOWN: Record<string, string> = {
+  "/.well-known/muse-challenge/2081c4591bfbe3af1fdc306c1f91637d6418961c79ff6247c542599aec5c6f11":
+    "muse-challenge=2081c4591bfbe3af1fdc306c1f91637d6418961c79ff6247c542599aec5c6f11",
+};
 const MAX_BODY_BYTES = 64 * 1024;
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -29,6 +34,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    const proof = WELL_KNOWN[url.pathname];
+    if (proof && (request.method === "GET" || request.method === "HEAD")) {
+      return new Response(request.method === "HEAD" ? null : proof + "\n", { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+    }
     if (url.pathname === "/" || url.pathname === "") {
       return Response.json({
         name: "kavana-zmanim",
