@@ -18,6 +18,18 @@ for Claude Code:
 The endpoint is stateless Streamable HTTP (POST only), limited to 60 requests
 a minute per client address.
 
+## Weekly Shabbat reminder
+
+In an assistant that supports scheduled tasks, send this after setup (replace
+the city):
+
+> Create a recurring task for every Friday at 9:00 AM in my time zone. Each
+> time it runs, call the get_shabbat_times tool of the zmanim MCP server for
+> [your city] and send me four lines: the candle-lighting time, the Havdalah
+> time, the parasha, and any holiday on that Shabbat. State the
+> candle-lighting and Havdalah offsets that were used. If the server cannot be
+> reached, say so and do not estimate the times.
+
 ## Tools
 
 | Tool | Answers |
