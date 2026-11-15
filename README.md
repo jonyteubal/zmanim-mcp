@@ -25,13 +25,13 @@ Muse builds custom integrations from a chat instruction. Send it this prompt
 (based on third-party guides, not tested against Muse):
 
 > Build a custom integration to the Zmanim MCP server at
-> https://zmanim.kavana-ai.workers.dev/mcp. It is a remote MCP server over
-> streamable HTTP. Without authentication it offers four read-only tools:
-> get_zmanim, get_shabbat_times, get_hebrew_date, and convert_hebrew_date. I
-> want you to be able to answer questions about zmanim, Shabbat times, and the
-> Hebrew calendar from any future conversation. Connect to it, test every tool
-> end to end, show me the results, and save the integration as a reusable
-> skill. It needs no credentials.
+> https://zmanim.kavana-ai.workers.dev/mcp. Use the official MCP SDK with the
+> Streamable HTTP client transport. The server is stateless: every call is an
+> HTTP POST of a JSON-RPC message, with no sessions, no GET or server-sent
+> streams, and no authentication or credentials. Call tools/list to see its
+> nine read-only tools. Test get_shabbat_times with {"location":"Miami"} and
+> find_blessing with {"food":"banana"}, show me the results, and save the
+> integration as a reusable skill so I can use it from any future conversation.
 
 Other agents that connect through chat (Claude Duet, Dot and similar) can be
 given the endpoint URL with the same description.
