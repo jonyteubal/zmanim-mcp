@@ -5,6 +5,10 @@ import { assertTimeZone, resolvePlace, type Place } from "./location.js";
 import { addDays, civilDateAt, localMidnight } from "./solar.js";
 import { computeZmanim, displayInstant, formatTime, nextShabbat } from "./zmanim.js";
 
+// Every tool only reads. The two place tools may call the city lookup service.
+const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+const READ_ONLY_LOOKUP = { ...READ_ONLY, openWorldHint: true } as const;
+
 const NOTE = "Calculated times, accurate to about a minute at sea-level horizon. Terrain is not modeled. For practical halachic questions, follow your community's luach and rabbi.";
 
 const place = {
@@ -31,11 +35,12 @@ async function guard(run: () => Promise<unknown>) {
 
 /** One server per connection. `fetcher` lets a host add caching to the city lookup. */
 export function createServer(fetcher: typeof fetch = fetch) {
-const server = new McpServer({ name: "kavana-zmanim", version: "0.2.0" });
+const server = new McpServer({ name: "kavana-zmanim", version: "0.3.0" });
 
 server.registerTool("get_zmanim", {
   title: "Zmanim for a day",
-  description: "Halachic times of day (alot, misheyakir, sunrise, latest Shema and tefillah, chatzot, mincha, plag, sunset, nightfall) for one date and place. Defaults follow the Sephardic method of Rav Ovadia Yosef. Always tell the user which method the times use.",
+  annotations: READ_ONLY_LOOKUP,
+  description: "Halachic times of day (alot, misheyakir, sunrise, latest Shema and tefillah, chatzot, mincha, plag, sunset, nightfall) for one date and place. Defaults follow the Sephardic method of Rav Ovadia Yosef. Each result names the calculation method that was applied.",
   inputSchema: {
     ...place,
     date: dateField,
@@ -70,7 +75,8 @@ server.registerTool("get_zmanim", {
 
 server.registerTool("get_shabbat_times", {
   title: "Shabbat candle-lighting and Havdalah",
-  description: "Candle-lighting and Havdalah for the coming Shabbat (or the Shabbat of the week containing a given date), with the parasha and any holiday that falls on it. State the offsets used when answering.",
+  annotations: READ_ONLY_LOOKUP,
+  description: "Candle-lighting and Havdalah for the coming Shabbat (or the Shabbat of the week containing a given date), with the parasha and any holiday that falls on it. The result states the candle-lighting and Havdalah offsets that were applied.",
   inputSchema: {
     ...place,
     date: z.string().optional().describe("Any civil date (YYYY-MM-DD) in the week wanted. Defaults to now; on Saturday night after Havdalah it moves to next week."),
@@ -91,13 +97,14 @@ server.registerTool("get_shabbat_times", {
     parasha: reading ? { name: reading.name, hebrew: reading.hebrew } : null,
     hebrew_date_of_shabbat: hebrewDate(shabbat.saturday).english,
     holidays,
-    holiday_caution: holidays.some((e) => e.yomTov) ? "A Yom Tov falls on or next to this Shabbat, so candle-lighting and Havdalah practice differ (for example lighting from an existing flame, or no Havdalah until the festival ends). Mention this." : undefined,
+    holiday_caution: holidays.some((e) => e.yomTov) ? "A Yom Tov falls on or next to this Shabbat, so candle-lighting and Havdalah practice differ (for example lighting from an existing flame, or no Havdalah until the festival ends). The times above are the ordinary Shabbat calculation." : undefined,
     note: NOTE,
   };
 }));
 
 server.registerTool("get_hebrew_date", {
   title: "Hebrew date and calendar",
+  annotations: READ_ONLY,
   description: "The Hebrew date for a civil date, what falls on it (holidays, fasts, Rosh Chodesh, omer count), the week's parasha, and optionally the holidays coming up. Use this for questions like \"what is today's Hebrew date\" or \"when is Chanukah\".",
   inputSchema: {
     date: z.string().optional().describe("Civil date as YYYY-MM-DD. Defaults to today in the given timezone."),
@@ -127,6 +134,7 @@ server.registerTool("get_hebrew_date", {
 
 server.registerTool("convert_hebrew_date", {
   title: "Hebrew date to civil date",
+  annotations: READ_ONLY,
   description: "The civil (Gregorian) date of a Hebrew date, for birthdays, yahrzeits and holidays. The Hebrew day begins the evening before the returned date.",
   inputSchema: {
     day: z.number().int().min(1).max(30),

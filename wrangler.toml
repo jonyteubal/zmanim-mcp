@@ -9,3 +9,7 @@ workers_dev = true
 name = "LIMITER"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
+
+# Requests are not logged or stored.
+[observability]
+enabled = false
