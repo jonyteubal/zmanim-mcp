@@ -8,15 +8,15 @@ Authentication: none. There are no accounts, scopes, or credentials.
 
 | Tool | Classification | Sensitive | Side effects | Calls outside the server |
 | --- | --- | --- | --- | --- |
-| `get_zmanim` | Read | No | None | City lookup, only when `location` is used |
-| `get_shabbat_times` | Read | No | None | City lookup, only when `location` is used |
+| `get_zmanim` | Read | No | None | None |
+| `get_shabbat_times` | Read | No | None | None |
 | `get_hebrew_date` | Read | No | None | None |
 | `convert_hebrew_date` | Read | No | None | None |
 
 Every tool is a pure calculation. No tool creates, changes, or deletes data,
 changes permissions, sends anything, or acts on a user's behalf. The MCP
 annotations on every tool are `readOnlyHint: true`, `destructiveHint: false`,
-`idempotentHint: true`. The same input returns the same output, apart from
+`idempotentHint: true`, `openWorldHint: false`. The same input returns the same output, apart from
 "today" and "the coming Shabbat" when no date is given.
 
 ## Setup
@@ -35,7 +35,7 @@ Give either `location`, or all three of `latitude`, `longitude`, `timezone`.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `location` | string | City name, optionally with country or region: "Panama City, Panama" |
+| `location` | string | City name, optionally with country or region: "Panama City, Panama". Matched against a built-in list of about 34,000 cities. When several cities share the name, the most populous is used and the others are listed in `place.other_places_with_this_name` |
 | `latitude` | number | -90 to 90 |
 | `longitude` | number | -180 to 180, negative for west |
 | `timezone` | string | IANA name such as "America/Panama". Required with coordinates |
@@ -117,7 +117,7 @@ partial data. The server never estimates a value it cannot calculate.
 | Coordinates without a time zone | "With coordinates, also give the IANA timezone" |
 | Invalid time zone | "... is not a valid IANA time zone." |
 | City not found | "No place found for ..." |
-| City lookup unreachable | "Could not look up ... Pass latitude, longitude and timezone instead." |
+| City exists but not in the region given | "No place named ... matches ... Found: ..." |
 | Invalid date | "... is not a date in YYYY-MM-DD form." |
 | Polar day or night | "The sun does not rise and set at ..." |
 | Invalid Hebrew date | "Could not read the Hebrew date ..." |
@@ -139,8 +139,8 @@ per-user limit, since there are no users or accounts.
 - Data received: place, date, and calculation options. Nothing else.
 - Storage: none. Requests and results are not written to a database or logs.
 - Third parties: Cloudflare hosts the server and sees request metadata such as
-  the IP address. When `location` is used, the city name alone is sent to the
-  Open-Meteo geocoding API, and the result is cached at the edge for 30 days.
+  the IP address. No other service is contacted: city names are matched
+  against a list built into the server.
 - No credentials, payment data, or personal accounts are involved.
 - Privacy notice: <https://kavana.jonyy.com/privacy/#mcp>
 

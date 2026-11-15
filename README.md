@@ -57,8 +57,8 @@ the city):
 | `convert_hebrew_date` | Civil date of a Hebrew date (birthdays, yahrzeits) |
 
 A place is a city name ("Panama City, Panama") or latitude, longitude and an
-IANA timezone. City names are resolved through the Open-Meteo geocoding API;
-the city name is the only thing sent. Coordinates need no outside service.
+IANA timezone. City names are matched against a built-in list of about 34,000
+cities (`data/cities.txt`), so the server contacts no outside service.
 
 ## Defaults
 
@@ -95,7 +95,8 @@ Deploy your own copy to Cloudflare Workers:
 | `src/solar.ts` | NOAA solar equations: sunrise, sunset, sun-angle times |
 | `src/zmanim.ts` | Zmanim and Shabbat times from those solar events |
 | `src/calendar.ts` | Hebrew dates, holidays and parasha via `@hebcal/core` |
-| `src/location.ts` | City lookup and time zone validation |
+| `src/location.ts` | City lookup in the built-in list, time zone validation |
+| `data/cities.txt` | City names, coordinates and time zones from GeoNames |
 | `src/server.ts` | The four MCP tools |
 | `src/index.ts` | Local stdio entry point |
 | `src/worker.ts` | Cloudflare Workers entry point (public HTTP endpoint) |
@@ -111,7 +112,7 @@ and local practice with a community luach or a rabbi.
 ## Credits
 
 - Hebrew calendar: [@hebcal/core](https://github.com/hebcal/hebcal-es6) (GPL-2.0-or-later)
-- City lookup: [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api), data from GeoNames (CC BY 4.0)
+- City list: [GeoNames](https://www.geonames.org/) (CC BY 4.0)
 - Solar equations: NOAA Solar Calculator, after Jean Meeus, *Astronomical Algorithms*
 
 ## License

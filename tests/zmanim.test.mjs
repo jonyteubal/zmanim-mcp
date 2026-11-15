@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { Location, Zmanim } from "@hebcal/core";
 import { events, fromHebrew, hebrewDate, isoDate, parasha, parseIsoDate } from "../dist/calendar.js";
@@ -102,22 +103,38 @@ test("Hebrew calendar", () => {
   assert.throws(() => parseIsoDate("tomorrow"));
 });
 
-test("place lookup: coordinates, hints, failures", async () => {
-  const direct = await resolvePlace({ latitude: 31.7683, longitude: 35.2137, timezone: "Asia/Jerusalem" });
+const cities = () => readFileSync(new URL("../data/cities.txt", import.meta.url), "utf8");
+
+test("place lookup: coordinates and their errors", async () => {
+  const direct = await resolvePlace({ latitude: 31.7683, longitude: 35.2137, timezone: "Asia/Jerusalem" }, cities);
   assert.equal(direct.israel, true);
-  await assert.rejects(resolvePlace({ latitude: 8.98, longitude: -79.5 }), /timezone/);
-  await assert.rejects(resolvePlace({ latitude: 8.98, longitude: -79.5, timezone: "Panama" }), /IANA/);
-  await assert.rejects(resolvePlace({}), /location/);
-  const results = [
-    { name: "Panama City", latitude: 30.16, longitude: -85.66, timezone: "America/Chicago", country: "United States", country_code: "US", admin1: "Florida" },
-    { name: "Panamá", latitude: 8.99, longitude: -79.52, timezone: "America/Panama", country: "Panama", country_code: "PA", admin1: "Panamá" },
-  ];
-  let asked = "";
-  const fake = async (url) => { asked = String(url); return { ok: true, json: async () => ({ results }) }; };
-  const hinted = await resolvePlace({ location: "Panama City, Panama" }, fake);
-  assert.equal(hinted.timeZone, "America/Panama");
-  assert.match(asked, /name=Panama%20City&/);
-  assert.equal((await resolvePlace({ location: "Panama City, Florida" }, fake)).timeZone, "America/Chicago");
-  await assert.rejects(resolvePlace({ location: "Nowhereville" }, async () => ({ ok: true, json: async () => ({}) })), /No place found/);
-  await assert.rejects(resolvePlace({ location: "Offline" }, async () => { throw new Error("network down"); }), /latitude, longitude and timezone/);
+  await assert.rejects(resolvePlace({ latitude: 8.98, longitude: -79.5 }, cities), /timezone/);
+  await assert.rejects(resolvePlace({ latitude: 8.98, longitude: -79.5, timezone: "Panama" }, cities), /IANA/);
+  await assert.rejects(resolvePlace({}, cities), /location/);
+});
+
+test("place lookup: city names from the bundled list", async () => {
+  const zone = async (location) => (await resolvePlace({ location }, cities)).timeZone;
+  assert.equal(await zone("Panama City, Panama"), "America/Panama");
+  assert.equal(await zone("Panama City, Florida"), "America/Chicago");
+  assert.equal(await zone("Panama"), "America/Panama");
+  assert.equal(await zone("Brooklyn, New York"), "America/New_York");
+  assert.equal(await zone("Brooklyn, NY"), "America/New_York");
+  assert.equal(await zone("Miami"), "America/New_York");
+  assert.equal(await zone("London, UK"), "Europe/London");
+  assert.equal(await zone("Buenos Aires"), "America/Argentina/Buenos_Aires");
+  assert.equal(await zone("Tromsø, Norway"), "Europe/Oslo");
+  assert.equal(await zone("  JERUSALEM "), "Asia/Jerusalem");
+  const jerusalem = await resolvePlace({ location: "Jerusalem" }, cities);
+  assert.equal(jerusalem.israel, true);
+  assert.equal(jerusalem.otherMatches, undefined);
+  const lakewood = await resolvePlace({ location: "Lakewood, New Jersey" }, cities);
+  assert.equal(lakewood.timeZone, "America/New_York");
+  assert.ok(Math.abs(lakewood.latitude - 40.08) < 0.1);
+  assert.equal((await resolvePlace({ location: "Lakewood, NJ" }, cities)).latitude, lakewood.latitude);
+  const ambiguous = await resolvePlace({ location: "Lakewood" }, cities);
+  assert.ok(ambiguous.otherMatches.some((name) => name.includes("New Jersey")));
+  assert.equal((await resolvePlace({ location: "Jerusalem" }, cities)).name, "Jerusalem, Israel");
+  await assert.rejects(resolvePlace({ location: "Nowhereville" }, cities), /No place found/);
+  await assert.rejects(resolvePlace({ location: "Miami, France" }, cities), /Found: Miami, Florida/);
 });

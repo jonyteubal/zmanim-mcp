@@ -1,25 +1,27 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { events, fromHebrew, hebrewDate, isoDate, parasha, parseIsoDate, weekdayName } from "./calendar.js";
-import { assertTimeZone, resolvePlace, type Place } from "./location.js";
+import { assertTimeZone, resolvePlace, type CitySource, type Place } from "./location.js";
 import { addDays, civilDateAt, localMidnight } from "./solar.js";
 import { computeZmanim, displayInstant, formatTime, nextShabbat } from "./zmanim.js";
 
-// Every tool only reads. The two place tools may call the city lookup service.
+// Every tool only reads, and none contacts an outside service.
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
-const READ_ONLY_LOOKUP = { ...READ_ONLY, openWorldHint: true } as const;
 
 const NOTE = "Calculated times, accurate to about a minute at sea-level horizon. Terrain is not modeled. For practical halachic questions, follow your community's luach and rabbi.";
 
 const place = {
-  location: z.string().optional().describe("City name, optionally with country or region: \"Panama City, Panama\", \"Jerusalem\", \"Brooklyn, New York\"."),
+  location: z.string().optional().describe("City name, optionally with country or region: \"Panama City, Panama\", \"Jerusalem\", \"Lakewood, New Jersey\". Matched against a built-in list of about 34,000 cities; add the region when several cities share a name."),
   latitude: z.number().min(-90).max(90).optional().describe("Decimal degrees. Use with longitude and timezone instead of location."),
   longitude: z.number().min(-180).max(180).optional().describe("Decimal degrees, negative for west."),
   timezone: z.string().optional().describe("IANA time zone such as \"America/Panama\". Required with coordinates."),
 };
 const dateField = z.string().optional().describe("Civil date as YYYY-MM-DD. Defaults to today at that place.");
 
-const placeSummary = (p: Place) => ({ name: p.name, latitude: p.latitude, longitude: p.longitude, timezone: p.timeZone });
+const placeSummary = (p: Place) => ({
+  name: p.name, latitude: p.latitude, longitude: p.longitude, timezone: p.timeZone,
+  other_places_with_this_name: p.otherMatches,
+});
 
 function reply(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -33,13 +35,13 @@ async function guard(run: () => Promise<unknown>) {
   }
 }
 
-/** One server per connection. `fetcher` lets a host add caching to the city lookup. */
-export function createServer(fetcher: typeof fetch = fetch) {
-const server = new McpServer({ name: "kavana-zmanim", version: "0.3.0" });
+/** One server per connection. `cities` supplies the bundled city list. */
+export function createServer(cities: CitySource) {
+const server = new McpServer({ name: "kavana-zmanim", version: "0.4.0" });
 
 server.registerTool("get_zmanim", {
   title: "Zmanim for a day",
-  annotations: READ_ONLY_LOOKUP,
+  annotations: READ_ONLY,
   description: "Halachic times of day (alot, misheyakir, sunrise, latest Shema and tefillah, chatzot, mincha, plag, sunset, nightfall) for one date and place. Defaults follow the Sephardic method of Rav Ovadia Yosef. Each result names the calculation method that was applied.",
   inputSchema: {
     ...place,
@@ -49,7 +51,7 @@ server.registerTool("get_zmanim", {
     elevation_meters: z.number().min(0).max(9000).optional().describe("Observer elevation; moves sunrise and sunset only. Default 0."),
   },
 }, (args) => guard(async () => {
-  const p = await resolvePlace(args, fetcher);
+  const p = await resolvePlace(args, cities);
   const date = args.date ? parseIsoDate(args.date) : civilDateAt(Date.now(), p.timeZone);
   const result = computeZmanim(date, p.latitude, p.longitude, p.timeZone, {
     dawn: args.dawn, nightfall: args.nightfall, elevationMeters: args.elevation_meters,
@@ -75,7 +77,7 @@ server.registerTool("get_zmanim", {
 
 server.registerTool("get_shabbat_times", {
   title: "Shabbat candle-lighting and Havdalah",
-  annotations: READ_ONLY_LOOKUP,
+  annotations: READ_ONLY,
   description: "Candle-lighting and Havdalah for the coming Shabbat (or the Shabbat of the week containing a given date), with the parasha and any holiday that falls on it. The result states the candle-lighting and Havdalah offsets that were applied.",
   inputSchema: {
     ...place,
@@ -84,7 +86,7 @@ server.registerTool("get_shabbat_times", {
     havdalah_minutes: z.number().int().min(0).max(120).optional().describe("Minutes after Saturday's sunset. Default 40. Use 0 for the sun 8.5 degrees below the horizon; 72 for Rabbenu Tam."),
   },
 }, (args) => guard(async () => {
-  const p = await resolvePlace(args, fetcher);
+  const p = await resolvePlace(args, cities);
   const reference = args.date ? localMidnight(parseIsoDate(args.date), p.timeZone) : Date.now();
   const shabbat = nextShabbat(reference, p.latitude, p.longitude, p.timeZone, args.candle_minutes ?? 18, args.havdalah_minutes ?? 40);
   if (!shabbat) throw new Error(`The sun does not set at ${p.name} that week, so candle-lighting cannot be calculated. Ask a rabbi how the community keeps Shabbat.`);

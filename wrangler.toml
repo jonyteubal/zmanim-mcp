@@ -4,7 +4,13 @@ compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
-# 60 requests a minute per client address, to protect the free city lookup.
+# The bundled city list is imported as text.
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+# 60 requests a minute per client address.
 [[ratelimits]]
 name = "LIMITER"
 namespace_id = "1001"

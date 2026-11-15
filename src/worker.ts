@@ -1,6 +1,7 @@
 // Public entry point: a stateless Streamable HTTP endpoint on Cloudflare Workers.
 // Every POST gets a fresh server, so there are no sessions to store or expire.
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import cities from "../data/cities.txt";
 import { createServer } from "./server.js";
 
 interface Env {
@@ -17,10 +18,6 @@ const CORS: Record<string, string> = {
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
   "Access-Control-Max-Age": "86400",
 };
-
-// City lookups repeat heavily, so the edge keeps each answer for 30 days.
-const cachedFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-  fetch(input, { ...init, cf: { cacheTtl: 2_592_000, cacheEverything: true } } as RequestInit)) as typeof fetch;
 
 function rpcError(status: number, message: string, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }), {
@@ -49,7 +46,7 @@ export default {
       if (!(await env.LIMITER.limit({ key })).success) return rpcError(429, "Too many requests. Limit: 60 per minute.", { "Retry-After": "60" });
     }
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    await createServer(cachedFetch).connect(transport);
+    await createServer(() => cities).connect(transport);
     const response = await transport.handleRequest(request);
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(CORS)) headers.set(name, value);
