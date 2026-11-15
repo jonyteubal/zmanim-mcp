@@ -1,7 +1,8 @@
 # zmanim-mcp
 
 A Model Context Protocol (MCP) server that gives AI assistants calculated
-zmanim, Shabbat times and Hebrew calendar data. It uses the same solar and
+zmanim, Shabbat times and Hebrew calendar data, plus the text of the siddur,
+Tehillim, and the blessings for foods. It uses the same solar and
 zmanim calculations as the [Kavaná](https://kavana.jonyy.com/) siddur app.
 There is no AI in the server: every answer is deterministic math.
 
@@ -55,6 +56,10 @@ the city):
 | `get_shabbat_times` | Candle-lighting, Havdalah, parasha, holidays on that Shabbat |
 | `get_hebrew_date` | Hebrew date, what falls on it, parasha, upcoming holidays |
 | `convert_hebrew_date` | Civil date of a Hebrew date (birthdays, yahrzeits) |
+| `list_prayers` | The prayers available, by service, for one tradition |
+| `get_prayer` | Hebrew text of a prayer, with English where the source has it |
+| `get_psalm` | A chapter of Tehillim in Hebrew and English |
+| `find_blessing` | The blessing before and after a food or drink |
 
 A place is a city name ("Panama City, Panama") or latitude, longitude and an
 IANA timezone. City names are matched against a built-in list of about 34,000
@@ -97,7 +102,9 @@ Deploy your own copy to Cloudflare Workers:
 | `src/calendar.ts` | Hebrew dates, holidays and parasha via `@hebcal/core` |
 | `src/location.ts` | City lookup in the built-in list, time zone validation |
 | `data/cities.txt` | City names, coordinates and time zones from GeoNames |
-| `src/server.ts` | The four MCP tools |
+| `src/texts.ts` | Prayer, Psalm and blessing lookups |
+| `assets/texts/` | One JSON file per prayer, built by `scripts/build_texts.py` |
+| `src/server.ts` | The eight MCP tools |
 | `src/index.ts` | Local stdio entry point |
 | `src/worker.ts` | Cloudflare Workers entry point (public HTTP endpoint) |
 
@@ -113,6 +120,9 @@ and local practice with a community luach or a rabbi.
 
 - Hebrew calendar: [@hebcal/core](https://github.com/hebcal/hebcal-es6) (GPL-2.0-or-later)
 - City list: [GeoNames](https://www.geonames.org/) (CC BY 4.0)
+- Sephardic siddur: Siddur Edot HaMizrach via [Sefaria](https://www.sefaria.org/), Hebrew Shaliehsaboo Edition (CC0), English Sefaria Community Translation (CC0)
+- Ashkenaz and Nusach Sefard siddurim: via Sefaria. Hebrew and English from the Metsudah siddur (1981), Avrohom Davis (CC BY), with public-domain texts for missing sections
+- Tehillim: Tanach with Nikkud; English, The Holy Scriptures (JPS 1917), public domain
 - Solar equations: NOAA Solar Calculator, after Jean Meeus, *Astronomical Algorithms*
 
 ## License

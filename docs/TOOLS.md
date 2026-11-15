@@ -12,6 +12,10 @@ Authentication: none. There are no accounts, scopes, or credentials.
 | `get_shabbat_times` | Read | No | None | None |
 | `get_hebrew_date` | Read | No | None | None |
 | `convert_hebrew_date` | Read | No | None | None |
+| `list_prayers` | Read | No | None | None |
+| `get_prayer` | Read | No | None | None |
+| `get_psalm` | Read | No | None | None |
+| `find_blessing` | Read | No | None | None |
 
 Every tool is a pure calculation. No tool creates, changes, or deletes data,
 changes permissions, sends anything, or acts on a user's behalf. The MCP
@@ -105,6 +109,59 @@ The civil date of a Hebrew date.
 Output: `civil_date`, `weekday`, `hebrew_date`, and `begins` (the evening on
 which that Hebrew day starts).
 
+## `list_prayers`
+
+The catalog of prayers whose text the server holds, grouped by service.
+
+| Input | Type | Default | Values |
+| --- | --- | --- | --- |
+| `tradition` | string | `sephardic` | `sephardic` (Edot HaMizrach), `ashkenaz`, `sefard` |
+
+Output: `tradition`, `services` (each with `service`, `title`, and `prayers`
+holding `prayer` id, `title`, paragraph count), `other_traditions`, `source`.
+
+## `get_prayer`
+
+The Hebrew text of one prayer, with English where the source provides it.
+
+| Input | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `prayer` | string | Yes | Name or id from `list_prayers`: "shema", "amidah", "birkat hamazon". Common alternate names are accepted |
+| `service` | string | No | `shacharit`, `mincha`, `arvit`, `shabbat_eve`, `shabbat_day`, `shabbat_mincha`, `extras`. Default: the first service that has the prayer |
+| `tradition` | string | No | As above. Default `sephardic` |
+| `offset` | integer | No | Paragraph to start from. Default 0 |
+| `include_english` | boolean | No | Default true |
+
+Output: `prayer`, `title`, `service`, `tradition`, `total_paragraphs`,
+`paragraphs` (each with position `n`, `he`, optional `en`, and optional `kind`
+of `heading`, `instruction`, or `blessing`), `next_offset` (null at the end),
+`also_available` (the same prayer in other services), `source`, `note`.
+A reply holds about 7,000 characters of text; longer prayers continue from
+`next_offset`.
+
+## `get_psalm`
+
+| Input | Type | Required | Values |
+| --- | --- | --- | --- |
+| `chapter` | integer | Yes | 1 to 150 |
+| `include_english` | boolean | No | Default true |
+
+Output: `chapter`, `title`, `verses` (each with `verse`, `he`, `en`), `source`.
+
+## `find_blessing`
+
+The blessing before and after a food or drink, from a guide of 40 common foods
+following Sephardic practice.
+
+| Input | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `food` | string | No | A food in English or Spanish, or a blessing name. Omit to list every blessing |
+
+Output with a match: `foods` (each with `food`, `before` and `after` blessings
+holding `hebrew`, `transliteration`, `english`, and `when` it applies, plus an
+optional `note`). Without a match: `found: false` and `foods_covered`. The
+server does not guess a blessing for a food that is not in the guide.
+
 ## Status handling and errors
 
 A successful call returns one text content item holding a JSON document. A
@@ -121,6 +178,10 @@ partial data. The server never estimates a value it cannot calculate.
 | Invalid date | "... is not a date in YYYY-MM-DD form." |
 | Polar day or night | "The sun does not rise and set at ..." |
 | Invalid Hebrew date | "Could not read the Hebrew date ..." |
+| Unknown prayer | "No prayer named ... Call list_prayers to see what is available." |
+| Prayer not in the service given | "... is not in the ... service. It appears in: ..." |
+| Offset past the end | "offset ... is past the end" |
+| Psalm out of range | "Psalm chapters run from 1 to 150." |
 
 Input that fails schema validation (wrong type, out of range) is rejected by
 the MCP layer before the tool runs.
@@ -144,7 +205,18 @@ per-user limit, since there are no users or accounts.
 - No credentials, payment data, or personal accounts are involved.
 - Privacy notice: <https://kavana.jonyy.com/privacy/#mcp>
 
+## Text sources
+
+- Sephardic: Siddur Edot HaMizrach via Sefaria, Hebrew Shaliehsaboo Edition (CC0), English Sefaria Community Translation (CC0).
+- Ashkenaz and Nusach Sefard: via Sefaria, the Metsudah siddur (1981), Avrohom Davis (CC BY), with public-domain texts for missing sections.
+- Tehillim: Tanach with Nikkud; English JPS 1917 (public domain).
+
+Every text reply names its source.
+
 ## Limits of the results
 
 Times are calculated for a sea-level horizon unless an elevation is given, and
-terrain is not modeled. Results are calculations, not halachic rulings.
+terrain is not modeled. Results are calculations, not halachic rulings. Prayer
+texts follow the printed source and do not adjust for the day (for example
+additions for Rosh Chodesh or fast days are shown with their instructions, not
+selected automatically).

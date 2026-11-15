@@ -4,6 +4,11 @@ compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+# Prayer texts: one small JSON file per prayer, read on demand.
+[assets]
+directory = "./assets"
+binding = "ASSETS"
+
 # The bundled city list is imported as text.
 [[rules]]
 type = "Text"

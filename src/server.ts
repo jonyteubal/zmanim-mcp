@@ -3,6 +3,7 @@ import { z } from "zod";
 import { events, fromHebrew, hebrewDate, isoDate, parasha, parseIsoDate, weekdayName } from "./calendar.js";
 import { assertTimeZone, resolvePlace, type CitySource, type Place } from "./location.js";
 import { addDays, civilDateAt, localMidnight } from "./solar.js";
+import { findBlessing, getPrayer, getPsalm, listPrayers, type TextSource } from "./texts.js";
 import { computeZmanim, displayInstant, formatTime, nextShabbat } from "./zmanim.js";
 
 // Every tool only reads, and none contacts an outside service.
@@ -35,9 +36,9 @@ async function guard(run: () => Promise<unknown>) {
   }
 }
 
-/** One server per connection. `cities` supplies the bundled city list. */
-export function createServer(cities: CitySource) {
-const server = new McpServer({ name: "kavana-zmanim", version: "0.4.0" });
+/** One server per connection. `cities` supplies the bundled city list and `texts` the prayer text files. */
+export function createServer(cities: CitySource, texts: TextSource) {
+const server = new McpServer({ name: "kavana-zmanim", version: "0.5.0" });
 
 server.registerTool("get_zmanim", {
   title: "Zmanim for a day",
@@ -152,6 +153,47 @@ server.registerTool("convert_hebrew_date", {
     begins: `At sunset on ${weekdayName(addDays(date, -1))}, ${isoDate(addDays(date, -1))}`,
   };
 }));
+
+const traditionField = z.enum(["sephardic", "ashkenaz", "sefard"]).optional().describe("Prayer tradition (nusach). sephardic (default) is Edot HaMizrach; ashkenaz; sefard is Nusach Sefard.");
+
+server.registerTool("list_prayers", {
+  title: "Prayers in the siddur",
+  description: "The catalog of prayers whose text this server holds, grouped by service (Shacharit, Mincha, Arvit, Shabbat, blessings), for one tradition. Returns the prayer ids that get_prayer accepts.",
+  annotations: READ_ONLY,
+  inputSchema: { tradition: traditionField },
+}, (args) => guard(() => listPrayers(texts, args.tradition)));
+
+server.registerTool("get_prayer", {
+  title: "Text of a prayer",
+  description: "The Hebrew text of a prayer from the siddur, with English where the source provides it: for example shema, amidah, modeh ani, alenu, birkat hamazon, kiddush, havdalah, bedtime shema, traveler's prayer. Long prayers are returned in parts; next_offset gives the position of the next part.",
+  annotations: READ_ONLY,
+  inputSchema: {
+    prayer: z.string().describe("Prayer name or id from list_prayers, for example \"shema\", \"amidah\", \"birkat hamazon\"."),
+    service: z.string().optional().describe("Service, when the prayer appears in several: shacharit, mincha, arvit, shabbat_eve, shabbat_day, shabbat_mincha, extras. Default: the first service that has it, starting with weekday Shacharit."),
+    tradition: traditionField,
+    offset: z.number().int().min(0).optional().describe("Paragraph to start from. Use the next_offset of the previous reply to continue a long prayer."),
+    include_english: z.boolean().optional().describe("Include the English translation where available. Default true."),
+  },
+}, (args) => guard(() => getPrayer(texts, args)));
+
+server.registerTool("get_psalm", {
+  title: "Text of a Psalm",
+  description: "One chapter of Tehillim (Psalms) in Hebrew with vowels, with the JPS 1917 English translation.",
+  annotations: READ_ONLY,
+  inputSchema: {
+    chapter: z.number().int().min(1).max(150).describe("Chapter number, 1 to 150."),
+    include_english: z.boolean().optional().describe("Include the English translation. Default true."),
+  },
+}, (args) => guard(() => getPsalm(texts, args.chapter, args.include_english)));
+
+server.registerTool("find_blessing", {
+  title: "Blessing for a food",
+  description: "The blessing (beracha) said before and after a food or drink, in Hebrew with transliteration and English, from a guide of common foods following Sephardic practice. With no food named, returns all the blessings before and after eating.",
+  annotations: READ_ONLY,
+  inputSchema: {
+    food: z.string().optional().describe("A food or drink, in English or Spanish (\"banana\", \"rice\", \"wine\", \"pizza\"), or a blessing name (\"hamotzi\", \"shehakol\")."),
+  },
+}, (args) => guard(() => findBlessing(texts, args.food)));
 
 return server;
 }

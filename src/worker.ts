@@ -5,6 +5,8 @@ import cities from "../data/cities.txt";
 import { createServer } from "./server.js";
 
 interface Env {
+  /** Static files under assets/, served by the platform. */
+  ASSETS: { fetch(request: Request | string): Promise<Response> };
   /** Optional Workers rate-limit binding, keyed by client address. */
   LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }
@@ -55,7 +57,10 @@ export default {
       if (!(await env.LIMITER.limit({ key })).success) return rpcError(429, "Too many requests. Limit: 60 per minute.", { "Retry-After": "60" });
     }
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    await createServer(() => cities).connect(transport);
+    await createServer(() => cities, async (path) => {
+      const file = await env.ASSETS.fetch(new Request(`https://assets.local/texts/${path}`));
+      return file.ok ? file.text() : null;
+    }).connect(transport);
     const response = await transport.handleRequest(request);
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(CORS)) headers.set(name, value);

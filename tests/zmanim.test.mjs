@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { Location, Zmanim } from "@hebcal/core";
 import { events, fromHebrew, hebrewDate, isoDate, parasha, parseIsoDate } from "../dist/calendar.js";
 import { resolvePlace } from "../dist/location.js";
+import { findBlessing, getPrayer, getPsalm, listPrayers } from "../dist/texts.js";
 import { SolarCalculator, localMidnight } from "../dist/solar.js";
 import { computeZmanim, displayInstant, formatTime, nextShabbat } from "../dist/zmanim.js";
 
@@ -137,4 +139,88 @@ test("place lookup: city names from the bundled list", async () => {
   assert.equal((await resolvePlace({ location: "Jerusalem" }, cities)).name, "Jerusalem, Israel");
   await assert.rejects(resolvePlace({ location: "Nowhereville" }, cities), /No place found/);
   await assert.rejects(resolvePlace({ location: "Miami, France" }, cities), /Found: Miami, Florida/);
+});
+
+const texts = (path) => readFile(new URL(`../assets/texts/${path}`, import.meta.url), "utf8").catch(() => null);
+
+test("prayer catalog covers three traditions", async () => {
+  const sephardic = await listPrayers(texts);
+  assert.equal(sephardic.tradition, "sephardic");
+  assert.deepEqual(sephardic.services.map((s) => s.service), ["shacharit", "mincha", "arvit", "shabbat_eve", "shabbat_day", "shabbat_mincha", "extras"]);
+  assert.ok(sephardic.services[0].prayers.some((p) => p.prayer === "shema"));
+  assert.match(sephardic.source, /CC0/);
+  assert.match((await listPrayers(texts, "ashkenaz")).source, /Metsudah/);
+  assert.equal((await listPrayers(texts, "sefard")).tradition, "sefard");
+  // Every prayer in every catalog can be fetched.
+  for (const tradition of ["sephardic", "ashkenaz", "sefard"]) {
+    for (const service of (await listPrayers(texts, tradition)).services) {
+      for (const prayer of service.prayers) {
+        const text = await getPrayer(texts, { prayer: prayer.prayer, service: service.service, tradition });
+        assert.equal(text.total_paragraphs, prayer.paragraphs, `${tradition} ${service.service} ${prayer.prayer}`);
+        assert.ok(text.paragraphs.length > 0 && text.paragraphs[0].he.length > 0);
+        assert.ok(!/<[a-z]/.test(JSON.stringify(text.paragraphs)), "no markup in output");
+      }
+    }
+  }
+});
+
+test("prayer lookup: names, aliases, services, paging", async () => {
+  const shema = await getPrayer(texts, { prayer: "Shema" });
+  assert.equal(shema.service, "shacharit");
+  assert.ok(shema.paragraphs.some((p) => p.he.includes("יִשְׂרָאֵ")));
+  assert.ok(shema.also_available.some((name) => name.includes("Arvit")));
+  for (const [name, id] of [["shmoneh esrei", "amidah"], ["aleinu", "alenu"], ["benching", "birkat_hamazon"], ["traveler's prayer", "traveler"], ["asher yatzar", "birkot_hashachar"], ["Modeh Ani", "modeh_ani"]]) {
+    assert.equal((await getPrayer(texts, { prayer: name })).prayer, id, name);
+  }
+  assert.equal((await getPrayer(texts, { prayer: "amidah", service: "maariv" })).service, "arvit");
+  assert.equal((await getPrayer(texts, { prayer: "amidah", service: "friday night" })).service, "shabbat_eve");
+  const noEnglish = await getPrayer(texts, { prayer: "modeh ani", include_english: false });
+  assert.ok(noEnglish.paragraphs.every((p) => p.en === undefined));
+  // A long prayer comes back in parts that add up to the whole, in order, without overlap.
+  const seen = [];
+  for (let offset = 0, guard = 0; offset !== null && guard < 50; guard++) {
+    const part = await getPrayer(texts, { prayer: "amidah", offset });
+    assert.ok(JSON.stringify(part).length < 20000, "one part stays small");
+    seen.push(...part.paragraphs.map((p) => p.n));
+    offset = part.next_offset;
+    if (offset === null) assert.equal(seen.length, part.total_paragraphs);
+  }
+  assert.deepEqual(seen, seen.map((_, n) => n));
+  await assert.rejects(getPrayer(texts, { prayer: "nonsense" }), /list_prayers/);
+  await assert.rejects(getPrayer(texts, { prayer: "havdalah", service: "shacharit" }), /appears in/);
+  await assert.rejects(getPrayer(texts, { prayer: "amidah", offset: 999 }), /past the end/);
+  await assert.rejects(getPrayer(texts, { prayer: "shema", tradition: "karaite" }), /Unknown tradition/);
+  await assert.rejects(getPrayer(texts, { prayer: "  " }), /prayer's name/);
+});
+
+test("psalms", async () => {
+  const psalm = await getPsalm(texts, 23);
+  assert.equal(psalm.verses.length, 6);
+  assert.match(psalm.verses[0].en, /shepherd/);
+  assert.match(psalm.source, /Public Domain/);
+  assert.equal((await getPsalm(texts, 150)).chapter, 150);
+  assert.equal((await getPsalm(texts, 1, false)).verses[0].en, undefined);
+  await assert.rejects(getPsalm(texts, 151), /1 to 150/);
+  await assert.rejects(getPsalm(texts, 0), /1 to 150/);
+});
+
+test("blessings for foods", async () => {
+  const before = async (food) => (await findBlessing(texts, food)).foods.map((f) => f.before.id);
+  assert.deepEqual(await before("banana"), ["haadamah"]);
+  assert.deepEqual(await before("bananas"), ["haadamah"]);
+  assert.deepEqual(await before("wine"), ["hagefen"]);
+  assert.deepEqual(await before("arroz"), ["mezonot"]);
+  assert.deepEqual(await before("water"), ["shehakol"]);
+  const bread = (await findBlessing(texts, "bread")).foods[0];
+  assert.equal(bread.before.id, "hamotzi");
+  assert.equal(bread.after.id, "hamazon");
+  assert.match(bread.before.hebrew, /הַמּוֹצִיא/);
+  const named = await findBlessing(texts, "shehakol");
+  assert.equal(named.blessings[0].id, "shehakol");
+  const unknown = await findBlessing(texts, "unicorn");
+  assert.equal(unknown.found, false);
+  assert.ok(unknown.foods_covered.length >= 40);
+  const all = await findBlessing(texts);
+  assert.equal(all.before_eating.length, 6);
+  assert.equal(all.after_eating.length, 5);
 });
