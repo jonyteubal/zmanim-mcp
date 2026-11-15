@@ -56,6 +56,16 @@ export default {
       const key = request.headers.get("CF-Connecting-IP") ?? "unknown";
       if (!(await env.LIMITER.limit({ key })).success) return rpcError(429, "Too many requests. Limit: 60 per minute.", { "Retry-After": "60" });
     }
+    // Hand-built clients often omit the headers the MCP transport insists on.
+    // The reply is always JSON, so fill them in instead of refusing the call.
+    const accept = request.headers.get("Accept") ?? "";
+    const type = request.headers.get("Content-Type") ?? "";
+    if (!accept.includes("application/json") || !accept.includes("text/event-stream") || !type.includes("application/json")) {
+      const headers = new Headers(request.headers);
+      headers.set("Accept", "application/json, text/event-stream");
+      headers.set("Content-Type", "application/json");
+      request = new Request(request, { headers });
+    }
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await createServer(() => cities, async (path) => {
       const file = await env.ASSETS.fetch(new Request(`https://assets.local/texts/${path}`));
